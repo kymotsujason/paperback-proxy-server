@@ -101,57 +101,41 @@ async function processImage(imageUrl, dataFolder) {
 			// File does not exist, proceed to download and process
 		}
 
-		// Use streams to download and process the image
+		// Download the image into a buffer
 		const response = await axios({
 			method: "get",
 			url: imageUrl,
 			headers: {
 				referer: `https://${url.hostname}/`,
 			},
-			responseType: "stream", // Use stream for efficiency
+			responseType: "arraybuffer", // Get data as a buffer
 		});
 
-		return new Promise((resolve, reject) => {
-			const transformStream = sharp()
-				.trim({
-					background: "#ffffff",
-					threshold: 40,
-				})
-				.on("error", (err) => {
-					console.error(
-						`Error processing image ${imageFilename}:`,
-						err
-					);
-					err.filename = imageFilename;
-					reject(err);
-				});
+		const imageBuffer = Buffer.from(response.data);
 
-			const writableStream = fs
-				.createWriteStream(imagePath)
-				.on("error", (err) => {
-					console.error(
-						`Error writing image ${imageFilename} to disk:`,
-						err
-					);
-					err.filename = imageFilename;
-					reject(err);
-				})
-				.on("finish", () => {
-					resolve(finalURL);
-				});
+		// Get image metadata
+		const metadata = await sharp(imageBuffer).metadata();
 
-			response.data
-				.on("error", (err) => {
-					console.error(
-						`Error downloading image ${imageFilename}:`,
-						err
-					);
-					err.filename = imageFilename;
-					reject(err);
-				})
-				.pipe(transformStream)
-				.pipe(writableStream);
-		});
+		// Determine if the image is a webtoon based on aspect ratio
+		const aspectRatio = metadata.height / metadata.width;
+
+		const isWebtoon = aspectRatio > 1.6; // Adjust the threshold as needed
+
+		// Prepare the Sharp pipeline
+		let transformer = sharp(imageBuffer);
+
+		if (!isWebtoon) {
+			// If not a webtoon, apply trimming
+			transformer = transformer.trim({
+				background: "#ffffff",
+				threshold: 40,
+			});
+		}
+
+		// Process and save the image
+		await transformer.toFile(imagePath);
+
+		return finalURL;
 	} catch (err) {
 		err.filename = imageUrl;
 		throw err;

@@ -94,71 +94,56 @@ async function processImage(
 		// Check if the image file exists asynchronously
 		await fs.promises.access(imagePath);
 		// File exists
-		//console.log(
-		//	`Image ${imageFilename} already exists in ${chapterHash} folder. Skipping download and processing.`
-		//);
+		//console.log(`Image ${imageFilename} already exists. Skipping.`);
 		return { success: true, filename: imageFilename, skipped: true };
 	} catch {
-		// File does not exist, proceed to download and process
-		//console.log(
-		//	`Image ${imageFilename} does not exist in ${chapterHash} folder. Downloading and processing.`
-		//);
-		const imageUrl = `${baseUrl}/data/${chapterHash}/${imageFilename}`;
+		try {
+			// File does not exist, proceed to download and process
+			//console.log(`Processing image ${imageFilename}.`);
 
-		// Use streams to download and process the image
-		const response = await axios({
-			method: "get",
-			url: imageUrl,
-			headers: {
-				referer: `${baseUrl}/`,
-			},
-			responseType: "stream", // Use stream for efficiency
-		});
+			const imageUrl = `${baseUrl}/data/${chapterHash}/${imageFilename}`;
 
-		return new Promise((resolve, reject) => {
-			const transformStream = sharp()
-				.trim({
+			// Download the image into a buffer
+			const response = await axios({
+				method: "get",
+				url: imageUrl,
+				headers: {
+					referer: `${baseUrl}/`,
+				},
+				responseType: "arraybuffer", // Download as buffer to analyze
+			});
+
+			const imageBuffer = Buffer.from(response.data);
+
+			// Get image metadata
+			const metadata = await sharp(imageBuffer).metadata();
+
+			// Calculate the aspect ratio
+			const aspectRatio = metadata.width / metadata.height;
+
+			// Prepare the Sharp transformer
+			let transformer = sharp(imageBuffer);
+
+			if (aspectRatio > 1.6) {
+				// If aspect ratio is above 1.6, apply trimming
+				transformer = transformer.trim({
 					background: "#ffffff",
 					threshold: 40,
-				})
-				.on("error", (err) => {
-					console.error(
-						`Error processing image ${imageFilename}:`,
-						err
-					);
-					err.filename = imageFilename;
-					reject(err);
 				});
+				//console.log(`Trimming image ${imageFilename} with aspect ratio ${aspectRatio}.`);
+			} else {
+				// If aspect ratio is 1.6 or below, skip trimming
+				//console.log(`Skipping trimming for image ${imageFilename} with aspect ratio ${aspectRatio}.`);
+			}
 
-			const writableStream = fs
-				.createWriteStream(imagePath)
-				.on("error", (err) => {
-					console.error(
-						`Error writing image ${imageFilename} to disk:`,
-						err
-					);
-					err.filename = imageFilename;
-					reject(err);
-				})
-				.on("finish", () => {
-					//console.log(
-					//	`Image ${imageFilename} downloaded and processed.`
-					//);
-					resolve({ success: true, filename: imageFilename });
-				});
+			// Save the processed image to disk
+			await transformer.toFile(imagePath);
 
-			response.data
-				.on("error", (err) => {
-					console.error(
-						`Error downloading image ${imageFilename}:`,
-						err
-					);
-					err.filename = imageFilename;
-					reject(err);
-				})
-				.pipe(transformStream)
-				.pipe(writableStream);
-		});
+			return { success: true, filename: imageFilename };
+		} catch (err) {
+			err.filename = imageFilename;
+			throw err;
+		}
 	}
 }
 
