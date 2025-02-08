@@ -124,12 +124,14 @@ async function processImage(
 			// Prepare the Sharp transformer
 			let transformer = sharp(imageBuffer);
 
-			if (aspectRatio > 1.6) {
+			if (aspectRatio < 1.6) {
 				// If aspect ratio is above 1.6, apply trimming
-				transformer = transformer.trim({
-					background: "#ffffff",
-					threshold: 40,
-				});
+				transformer = transformer
+					.trim({
+						background: "#ffffff",
+						threshold: 40,
+					})
+					.webp({ quality: 75, effort: 6 });
 				//console.log(`Trimming image ${imageFilename} with aspect ratio ${aspectRatio}.`);
 			} else {
 				// If aspect ratio is 1.6 or below, skip trimming

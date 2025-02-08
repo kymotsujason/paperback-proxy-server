@@ -126,10 +126,12 @@ async function processImage(imageUrl, dataFolder) {
 
 		if (!isWebtoon) {
 			// If not a webtoon, apply trimming
-			transformer = transformer.trim({
-				background: "#ffffff",
-				threshold: 40,
-			});
+			transformer = transformer
+				.trim({
+					background: "#ffffff",
+					threshold: 40,
+				})
+				.webp({ quality: 75, effort: 6 });
 		}
 
 		// Process and save the image
