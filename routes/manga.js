@@ -30,25 +30,43 @@ router.get("/", authenticateToken, async function (req, res) {
 			// Create data folder and chapter folder asynchronously
 			await fs.mkdir(chapterFolder, { recursive: true });
 
-			// Start processing images asynchronously
-			processImages(
+			// Determine the number of images to wait for
+			const imagesToWaitFor = Math.min(imageFilenames.length, 3);
+
+			// Process the first N images and wait for them to complete
+			const initialImageFilenames = imageFilenames.slice(
+				0,
+				imagesToWaitFor
+			);
+			await processImages(
 				originalBaseUrl,
 				chapterHash,
-				imageFilenames,
+				initialImageFilenames,
 				chapterFolder
-			).catch((err) => {
-				console.error("Error processing images:", err);
-			});
+			);
+
+			// Process the remaining images asynchronously
+			const remainingImageFilenames =
+				imageFilenames.slice(imagesToWaitFor);
+			if (remainingImageFilenames.length > 0) {
+				processImages(
+					originalBaseUrl,
+					chapterHash,
+					remainingImageFilenames,
+					chapterFolder
+				).catch((err) => {
+					console.error("Error processing remaining images:", err);
+				});
+			}
 
 			// Replace baseUrl in response data
 			const baseUrl = process.env.SITE;
 			response.data.baseUrl = baseUrl;
 
-			// Send response back to client immediately
+			// Send response back to client
 			res.json({
 				...response.data,
-				message:
-					"Images are being processed and will be available shortly.",
+				message: `Images are being processed. The first ${imagesToWaitFor} page(s) are ready.`,
 			});
 		} else {
 			// Handle API error response
@@ -63,7 +81,7 @@ router.get("/", authenticateToken, async function (req, res) {
 	}
 });
 
-// Function to process all images asynchronously
+// Function to process images
 async function processImages(
 	baseUrl,
 	chapterHash,
@@ -75,7 +93,7 @@ async function processImages(
 		const limit = pLimit(3); // Adjust concurrency limit as needed
 
 		// Process all images with limited concurrency
-		await Promise.allSettled(
+		await Promise.all(
 			imageFilenames.map((imageFilename) =>
 				limit(() =>
 					processImage(

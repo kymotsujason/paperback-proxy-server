@@ -20,22 +20,31 @@ router.get("/", authenticateToken, async function (req, res) {
 		const dataFolder = path.join(__dirname.replace("routes", ""), "data");
 		await fs.mkdir(dataFolder, { recursive: true });
 
-		// Process images asynchronously
-		processImages(imageUrls, dataFolder).catch((err) => {
-			console.error("Error processing images:", err);
-		});
+		// Determine the number of images to wait for
+		const imagesToWaitFor = Math.min(imageUrls.length, 3);
+
+		// Process the first N images and wait for them to complete
+		const initialImageUrls = imageUrls.slice(0, imagesToWaitFor);
+		await processImages(initialImageUrls, dataFolder);
+
+		// Process the remaining images asynchronously
+		const remainingImageUrls = imageUrls.slice(imagesToWaitFor);
+		if (remainingImageUrls.length > 0) {
+			processImages(remainingImageUrls, dataFolder).catch((err) => {
+				console.error("Error processing remaining images:", err);
+			});
+		}
 
 		// Prepare the response with the intended image URLs
 		const processedImages = imageUrls.map((imageUrl) =>
 			getFinalURL(imageUrl)
 		);
 
-		// Send response back to client immediately
+		// Send response back to client
 		res.json({
 			result: "ok",
 			processedImages: processedImages,
-			message:
-				"Images are being processed and will be available shortly.",
+			message: `Images are being processed. The first ${imagesToWaitFor} page(s) are ready.`,
 		});
 	} catch (err) {
 		console.error("Error in route handler:", err);
@@ -43,7 +52,7 @@ router.get("/", authenticateToken, async function (req, res) {
 	}
 });
 
-// Function to process images asynchronously
+// Function to process images
 async function processImages(imageUrls, dataFolder) {
 	const limit = pLimit(3); // Adjust concurrency limit as needed
 
