@@ -1,17 +1,15 @@
 const express = require("express");
 const axios = require("axios");
 const router = express.Router();
-const fs = require("fs");
+const fs = require("fs").promises;
 const path = require("path");
-const sharp = require("sharp"); // Using sharp for image processing
+const sharp = require("sharp");
 const pLimit = require("@esm2cjs/p-limit").default;
 const authenticateToken = require("../middleware/authMiddleware");
 
-/* GET route handler */
 router.get("/", authenticateToken, async function (req, res) {
 	try {
-		// Assume imageUrls is an array of image URLs provided in the query parameters
-		// e.g., ?imageUrls[]=url1&imageUrls[]=url2
+		// Extract image URLs from query parameters
 		const imageUrls = req.query.imageUrls;
 
 		if (!Array.isArray(imageUrls) || imageUrls.length === 0) {
@@ -20,36 +18,24 @@ router.get("/", authenticateToken, async function (req, res) {
 
 		// Ensure data directory exists
 		const dataFolder = path.join(__dirname.replace("routes", ""), "data");
-		await fs.promises.mkdir(dataFolder, { recursive: true });
+		await fs.mkdir(dataFolder, { recursive: true });
 
-		// Limit concurrency to prevent resource exhaustion
-		const limit = pLimit(3); // Adjust concurrency limit as needed
+		// Process images asynchronously
+		processImages(imageUrls, dataFolder).catch((err) => {
+			console.error("Error processing images:", err);
+		});
 
-		// Process all images with limited concurrency
-		const processingResults = await Promise.allSettled(
-			imageUrls.map((imageUrl) =>
-				limit(() => processImage(imageUrl, dataFolder))
-			)
+		// Prepare the response with the intended image URLs
+		const processedImages = imageUrls.map((imageUrl) =>
+			getFinalURL(imageUrl)
 		);
 
-		// Handle failed operations if necessary
-		const failedImages = processingResults
-			.filter((result) => result.status === "rejected")
-			.map((result) => result.reason.filename || result.reason);
-
-		if (failedImages.length > 0) {
-			console.warn(
-				`Failed to process images: ${failedImages.join(", ")}`
-			);
-		}
-
-		// Send response back to client
+		// Send response back to client immediately
 		res.json({
 			result: "ok",
-			processedImages: processingResults
-				.filter((result) => result.status === "fulfilled")
-				.map((result) => result.value),
-			failedImages: failedImages,
+			processedImages: processedImages,
+			message:
+				"Images are being processed and will be available shortly.",
 		});
 	} catch (err) {
 		console.error("Error in route handler:", err);
@@ -57,75 +43,77 @@ router.get("/", authenticateToken, async function (req, res) {
 	}
 });
 
+// Function to process images asynchronously
+async function processImages(imageUrls, dataFolder) {
+	const limit = pLimit(3); // Adjust concurrency limit as needed
+
+	await Promise.all(
+		imageUrls.map((imageUrl) =>
+			limit(() => processImage(imageUrl, dataFolder))
+		)
+	);
+}
+
+// Function to get the final URL for an image
+function getFinalURL(imageUrl) {
+	const url = new URL(imageUrl);
+
+	// Get the pathname without leading '/'
+	const pathname = url.pathname.replace(/^\/+/, "");
+	// Construct the final URL
+	const finalURL = `${process.env.SITE}/data/${pathname}`;
+
+	return finalURL;
+}
+
 // Function to process a single image
 async function processImage(imageUrl, dataFolder) {
 	try {
-		// Parse the image URL
 		const url = new URL(imageUrl);
 
-		// Get the pathname and remove the leading '/'
-		const pathname = url.pathname.startsWith("/")
-			? url.pathname.substring(1)
-			: url.pathname;
-		// Split the pathname into parts
+		// Get the pathname and split into parts
+		const pathname = url.pathname.replace(/^\/+/, "");
 		const pathParts = pathname.split("/");
 
-		// The last part is the image filename
+		// Filename and folder structure
 		const imageFilename = pathParts.pop();
-
-		// Remaining parts are the folder structure
 		const folderStructure = pathParts.join(path.sep);
 
-		// Create the full folder path
 		const folderPath = path.join(dataFolder, folderStructure);
 
 		// Ensure the folder exists
-		await fs.promises.mkdir(folderPath, { recursive: true });
+		await fs.mkdir(folderPath, { recursive: true });
 
-		// Full path to save the image
 		const imagePath = path.join(folderPath, imageFilename);
 
-		const finalURL =
-			process.env.SITE +
-			"/data/" +
-			folderStructure.replace(/\\/g, "/") +
-			"/" +
-			imageFilename;
-
-		// Check if the image file exists
+		// Skip processing if the image already exists
 		try {
-			await fs.promises.access(imagePath);
-			// File exists, skip processing
-			return finalURL;
+			await fs.access(imagePath);
+			return;
 		} catch {
 			// File does not exist, proceed to download and process
 		}
 
-		// Download the image into a buffer
-		const response = await axios({
-			method: "get",
-			url: imageUrl,
+		// Download the image
+		const response = await axios.get(imageUrl, {
+			responseType: "arraybuffer",
 			headers: {
 				referer: `https://${url.hostname}/`,
 			},
-			responseType: "arraybuffer", // Get data as a buffer
 		});
 
 		const imageBuffer = Buffer.from(response.data);
 
-		// Get image metadata
+		// Get image metadata to determine if it's a webtoon
 		const metadata = await sharp(imageBuffer).metadata();
 
-		// Determine if the image is a webtoon based on aspect ratio
 		const aspectRatio = metadata.height / metadata.width;
+		const isWebtoon = aspectRatio > 1.6; // Adjust threshold if needed
 
-		const isWebtoon = aspectRatio > 1.6; // Adjust the threshold as needed
-
-		// Prepare the Sharp pipeline
 		let transformer = sharp(imageBuffer);
 
 		if (!isWebtoon) {
-			// If not a webtoon, apply trimming
+			// Apply trimming and convert to WebP
 			transformer = transformer
 				.trim({
 					background: "#ffffff",
@@ -134,13 +122,11 @@ async function processImage(imageUrl, dataFolder) {
 				.webp({ quality: 75, effort: 6 });
 		}
 
-		// Process and save the image
+		// Save the processed image
 		await transformer.toFile(imagePath);
-
-		return finalURL;
 	} catch (err) {
-		err.filename = imageUrl;
-		throw err;
+		console.error(`Error processing image ${imageUrl}:`, err);
+		// Handle specific errors if necessary
 	}
 }
 

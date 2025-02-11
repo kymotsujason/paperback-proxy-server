@@ -8,6 +8,7 @@ const cookieParser = require("cookie-parser");
 const logger = require("morgan");
 const debug = require("debug")("backend:server");
 const http = require("http");
+const compression = require("compression");
 
 const indexRouter = require("./routes/index");
 const authRoute = require("./routes/auth");
@@ -25,19 +26,20 @@ const server = http.createServer(app);
 app.set("views", path.join(__dirname, "views"));
 app.set("view engine", "pug");
 
+app.use(compression());
 app.use(bodyParser.json());
 app.use(logger("dev"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
-app.use("/data", express.static(path.join(__dirname, "data")));
+//app.use("/data", express.static(path.join(__dirname, "data")));
 
 app.use("/", indexRouter);
 app.use("/manga", mangaRouter);
 app.use("/generic", genericRouter);
 app.use("/api/auth", authRoute);
-//app.use("/data", dataRouter);
+app.use("/data", dataRouter);
 
 // catch 404 and forward to error handler
 app.use(function (req, res, next) {
