@@ -94,7 +94,7 @@ router.get("/", authenticateToken, async function (req, res) {
 				}
 			} else {
 				// For non-webtoons, process the first 3 images
-				imagesToWaitFor = Math.min(imageFilenames.length, 2);
+				imagesToWaitFor = Math.min(imageFilenames.length, 3);
 				const initialImageFilenames = imageFilenames.slice(
 					1,
 					imagesToWaitFor

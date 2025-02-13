@@ -159,7 +159,7 @@ router.get("/", authenticateToken, async function (req, res) {
 			await limit(() => processNextImage(1));
 		} else {
 			// For non-webtoons, process the first 3 images
-			imagesToWaitFor = Math.min(imageUrls.length, 2);
+			imagesToWaitFor = Math.min(imageUrls.length, 3);
 			const initialImageUrls = imageUrls.slice(1, imagesToWaitFor);
 
 			const limit = pLimit(5); // Increase concurrency limit to 5
